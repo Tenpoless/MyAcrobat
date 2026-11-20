@@ -1,0 +1,26 @@
+name: myacrobat_app
+description: "MyAcrobat MVP — PDF Reader & Quick E-Signature integrated with Mega.nz"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  dio: ^5.8.0+1
+  pdfrx: ^1.0.101
+  signature: ^5.5.0
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

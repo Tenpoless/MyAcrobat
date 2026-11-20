@@ -1,0 +1,13 @@
+services:
+  myacrobat-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: myacrobat-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/public:/app/public:ro
