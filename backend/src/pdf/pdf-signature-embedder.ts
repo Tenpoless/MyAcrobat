@@ -110,5 +110,5 @@ export async function embedSignatureIntoPdf(params: {
     });
   }
 
-  return pdfDoc.save();
+  return pdfDoc.save({ useObjectStreams: false });
 }

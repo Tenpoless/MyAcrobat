@@ -39,114 +39,6 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
     ref.read(searchQueryProvider.notifier).state = '';
   }
 
-  Future<void> _openOfficeServerSettingsDialog() async {
-    final client = ref.read(apiClientProvider);
-    var draftUrl = client.baseUrl;
-
-    final updatedUrl = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
-          title: const Text(
-            'Alamat Server Kantor',
-            style: TextStyle(
-              color: Color(0xFF0F172A),
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Masukkan alamat IP atau URL Server Kantor MyAcrobat di jaringan LAN/Wi-Fi.',
-                style: TextStyle(
-                  color: Color(0xFF475569),
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: const Key('office_server_url_input'),
-                initialValue: draftUrl,
-                onChanged: (value) {
-                  draftUrl = value;
-                },
-                keyboardType: TextInputType.url,
-                style: const TextStyle(
-                  color: Color(0xFF0F172A),
-                  fontSize: 14,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'http://192.168.1.100:3000',
-                  hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: const BorderSide(
-                      color: Color(0xFFB91C1C),
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF475569),
-                minimumSize: const Size(44, 44),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              key: const Key('save_office_server_url_button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFB91C1C),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(44, 44),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              onPressed: () {
-                Navigator.of(dialogContext).pop(draftUrl.trim());
-              },
-              child: const Text('Simpan Server'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (updatedUrl != null && updatedUrl.isNotEmpty) {
-      await saveOfficeServerUrl(client, updatedUrl);
-      await ref.read(documentListProvider.notifier).refresh();
-    }
-  }
-
   String _formatDate(DateTime dateTime) {
     final local = dateTime.toLocal();
     final y = local.year.toString().padLeft(4, '0');
@@ -179,13 +71,6 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            key: const Key('office_server_settings_button'),
-            tooltip: 'Pengaturan Alamat Server Kantor',
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            onPressed: _openOfficeServerSettingsDialog,
-            icon: const Icon(Icons.settings_outlined),
-          ),
           IconButton(
             tooltip: 'Muat ulang daftar dokumen',
             constraints: const BoxConstraints(minWidth: 44, minHeight: 44),

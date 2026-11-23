@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:printing/printing.dart';
 
 import '../../models/signature_placement.dart';
 import '../../models/vault_pdf_file.dart';
@@ -16,6 +18,9 @@ class PdfSigningScreen extends ConsumerStatefulWidget {
   final VaultPdfFile document;
   final int? initialPageCount;
   final Future<Uint8List> Function(String fileId)? pdfBytesLoader;
+  final Future<Uint8List?> Function(Uint8List pdfBytes, int pageIndex)?
+      pdfPageRenderer;
+  final Future<void> Function(Uint8List pdfBytes, String fileName)? pdfExporter;
   final SignaturePlacementController? placementController;
 
   const PdfSigningScreen({
@@ -23,6 +28,8 @@ class PdfSigningScreen extends ConsumerStatefulWidget {
     required this.document,
     this.initialPageCount,
     this.pdfBytesLoader,
+    this.pdfPageRenderer,
+    this.pdfExporter,
     this.placementController,
   });
 
@@ -35,9 +42,13 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
   late final bool _ownsController;
 
   Uint8List? _pdfBytes;
+  final Map<int, Uint8List> _renderedPages = <int, Uint8List>{};
+  final Map<int, double> _pageAspectRatios = <int, double>{};
+  final Set<int> _renderingPages = <int>{};
   Uint8List? _signatureBytes;
   bool _isLoadingPdf = true;
   bool _isSaving = false;
+  bool _isExporting = false;
   String? _loadError;
   int _pageCount = 1;
   int _currentPageIndex = 0;
@@ -88,10 +99,14 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
       setState(() {
         _signatureBytes = savedSig;
         _pdfBytes = pdfBytes;
+        _renderedPages.clear();
+        _pageAspectRatios.clear();
+        _renderingPages.clear();
         _pageCount = detectedPages < 1 ? 1 : detectedPages;
         _currentPageIndex = 0;
         _isLoadingPdf = false;
       });
+      await _renderPageIfNeeded(0);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -142,6 +157,57 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
     setState(() {
       _signatureBytes = bytes;
     });
+  }
+
+  Future<void> _exportPdfBytes({
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    if (_isExporting || bytes.isEmpty) return;
+    setState(() => _isExporting = true);
+    try {
+      if (widget.pdfExporter != null) {
+        await widget.pdfExporter!(bytes, fileName);
+      } else {
+        await Printing.sharePdf(bytes: bytes, filename: fileName);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF0F172A),
+          content: Text('Gagal mengekspor PDF: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
+  Future<void> _handleExportCurrentPdf() async {
+    final bytes = _pdfBytes;
+    if (bytes == null || bytes.isEmpty) return;
+    await _exportPdfBytes(bytes: bytes, fileName: widget.document.name);
+  }
+
+  Future<void> _handleExportSignedFile(VaultPdfFile signedFile) async {
+    if (_isExporting) return;
+    try {
+      final loader = widget.pdfBytesLoader ??
+          (String id) => ref.read(apiClientProvider).downloadPdfBytes(id);
+      final signedBytes = await loader(signedFile.fileId);
+      await _exportPdfBytes(bytes: signedBytes, fileName: signedFile.name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF0F172A),
+          content: Text('Gagal mengunduh PDF untuk diekspor: $e'),
+        ),
+      );
+    }
   }
 
   Future<void> _handleSaveSignedDocument() async {
@@ -197,6 +263,21 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
             ),
           ),
           actions: [
+            OutlinedButton.icon(
+              key: const Key('export_signed_pdf_dialog_button'),
+              onPressed: () {
+                _handleExportSignedFile(result.signedFile);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0F172A),
+                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              icon: const Icon(Icons.ios_share_outlined, size: 16),
+              label: const Text('Export PDF'),
+            ),
             OutlinedButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
@@ -240,10 +321,15 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
       setState(() {
         _isSaving = false;
       });
+      final errorMsg = (e is DioException &&
+              e.response?.data is Map &&
+              (e.response?.data as Map)['error'] != null)
+          ? (e.response?.data as Map)['error'].toString()
+          : e.toString();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF0F172A),
-          content: Text('Gagal menyimpan dokumen: $e'),
+          content: Text('Gagal menyimpan dokumen: $errorMsg'),
           action: SnackBarAction(
             label: 'Coba Simpan Lagi',
             textColor: const Color(0xFFFCA5A5),
@@ -252,6 +338,230 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _renderPageIfNeeded(int pageIndex) async {
+    final pdfBytes = _pdfBytes;
+    if (pdfBytes == null ||
+        pdfBytes.isEmpty ||
+        _renderedPages.containsKey(pageIndex) ||
+        _renderingPages.contains(pageIndex)) {
+      return;
+    }
+
+    _renderingPages.add(pageIndex);
+    try {
+      if (widget.pdfPageRenderer != null) {
+        final customBytes = await widget.pdfPageRenderer!(pdfBytes, pageIndex);
+        if (customBytes != null && customBytes.isNotEmpty && mounted) {
+          setState(() {
+            _renderedPages[pageIndex] = customBytes;
+          });
+        }
+        return;
+      }
+
+      final hasPdfHeader = pdfBytes.length >= 5 &&
+          pdfBytes[0] == 0x25 &&
+          pdfBytes[1] == 0x50 &&
+          pdfBytes[2] == 0x44 &&
+          pdfBytes[3] == 0x46 &&
+          pdfBytes[4] == 0x2D;
+      if (!hasPdfHeader) {
+        return;
+      }
+
+      await for (final page in Printing.raster(
+        pdfBytes,
+        pages: <int>[pageIndex],
+        dpi: 144,
+      )) {
+        final pngBytes = await page.toPng();
+        if (!mounted) return;
+        setState(() {
+          _renderedPages[pageIndex] = pngBytes;
+          if (page.height > 0) {
+            _pageAspectRatios[pageIndex] = page.width / page.height;
+          }
+        });
+        break;
+      }
+    } catch (_) {
+      // Fallback to text metadata preview when native PDF rasterizer is unavailable
+    } finally {
+      _renderingPages.remove(pageIndex);
+    }
+  }
+
+  Widget _buildPdfViewerArea({
+    required BuildContext context,
+    required List<SignaturePlacement> pagePlacements,
+  }) {
+    final renderedPageBytes = _renderedPages[_currentPageIndex];
+    final pageAspectRatio =
+        _pageAspectRatios[_currentPageIndex] ?? (1 / 1.4142);
+
+    return Column(
+      children: [
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 8,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                key: const Key('prev_page_button'),
+                tooltip: 'Halaman sebelumnya',
+                onPressed: _currentPageIndex > 0
+                    ? () {
+                        final nextIndex = _currentPageIndex - 1;
+                        setState(() => _currentPageIndex = nextIndex);
+                        _renderPageIfNeeded(nextIndex);
+                      }
+                    : null,
+                icon: const Icon(Icons.chevron_left),
+                color: const Color(0xFF0F172A),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Halaman ${_currentPageIndex + 1} dari $_pageCount',
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                key: const Key('next_page_button'),
+                tooltip: 'Halaman berikutnya',
+                onPressed: _currentPageIndex + 1 < _pageCount
+                    ? () {
+                        final nextIndex = _currentPageIndex + 1;
+                        setState(() => _currentPageIndex = nextIndex);
+                        _renderPageIfNeeded(nextIndex);
+                      }
+                    : null,
+                icon: const Icon(Icons.chevron_right),
+                color: const Color(0xFF0F172A),
+              ),
+            ],
+          ),
+        ),
+        const Divider(
+          height: 1,
+          thickness: 1,
+          color: Color(0xFFE2E8F0),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: pageAspectRatio,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final pageWidth = constraints.maxWidth;
+                    final pageHeight = constraints.maxHeight;
+
+                    return Container(
+                      key: const Key('pdf_page_canvas'),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: const Color(0xFFCBD5E1),
+                        ),
+                      ),
+                      child: Stack(
+                        clipBehavior: Clip.hardEdge,
+                        children: [
+                          if (renderedPageBytes != null)
+                            Positioned.fill(
+                              child: Image.memory(
+                                renderedPageBytes,
+                                key: ValueKey(
+                                  'pdf_rendered_page_${widget.document.fileId}_$_currentPageIndex',
+                                ),
+                                fit: BoxFit.fill,
+                              ),
+                            )
+                          else
+                            Positioned.fill(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      widget.document.name,
+                                      style: const TextStyle(
+                                        color: Color(0xFF475569),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Pratinjau Halaman ${_currentPageIndex + 1} (${_pdfBytes?.length ?? 0} B)',
+                                      style: const TextStyle(
+                                        color: Color(0xFF64748B),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          for (final placement in pagePlacements)
+                            DraggableSignatureOverlay(
+                              key: ValueKey(
+                                placement.id ??
+                                    '${placement.pageIndex}_${placement.xRatio}_${placement.yRatio}',
+                              ),
+                              placement: placement,
+                              pageWidth: pageWidth,
+                              pageHeight: pageHeight,
+                              signatureBytes: _signatureBytes,
+                              onDragDelta: (delta) {
+                                if (placement.id == null) return;
+                                _controller.dragPlacement(
+                                  id: placement.id!,
+                                  dx: delta.dx,
+                                  dy: delta.dy,
+                                  pageRenderWidth: pageWidth,
+                                  pageRenderHeight: pageHeight,
+                                );
+                              },
+                              onResizeDelta: (delta) {
+                                if (placement.id == null) return;
+                                _controller.resizePlacement(
+                                  id: placement.id!,
+                                  dx: delta.dx,
+                                  dy: delta.dy,
+                                  pageRenderWidth: pageWidth,
+                                  pageRenderHeight: pageHeight,
+                                );
+                              },
+                              onDelete: () {
+                                if (placement.id == null) return;
+                                _controller.removePlacement(placement.id!);
+                              },
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -280,6 +590,19 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
+        actions: [
+          IconButton(
+            key: const Key('export_pdf_button'),
+            tooltip: 'Export PDF',
+            onPressed: (_isLoadingPdf ||
+                    _isExporting ||
+                    _pdfBytes == null ||
+                    _pdfBytes!.isEmpty)
+                ? null
+                : _handleExportCurrentPdf,
+            icon: const Icon(Icons.file_download_outlined),
+          ),
+        ],
       ),
       body: _isLoadingPdf
           ? const Center(
@@ -326,144 +649,10 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
                 )
               : Column(
                   children: [
-                    Container(
-                      color: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            key: const Key('prev_page_button'),
-                            tooltip: 'Halaman sebelumnya',
-                            onPressed: _currentPageIndex > 0
-                                ? () => setState(() => _currentPageIndex--)
-                                : null,
-                            icon: const Icon(Icons.chevron_left),
-                            color: const Color(0xFF0F172A),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Halaman ${_currentPageIndex + 1} dari $_pageCount',
-                            style: const TextStyle(
-                              color: Color(0xFF0F172A),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            key: const Key('next_page_button'),
-                            tooltip: 'Halaman berikutnya',
-                            onPressed: _currentPageIndex + 1 < _pageCount
-                                ? () => setState(() => _currentPageIndex++)
-                                : null,
-                            icon: const Icon(Icons.chevron_right),
-                            color: const Color(0xFF0F172A),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: Color(0xFFE2E8F0),
-                    ),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Center(
-                          child: AspectRatio(
-                            aspectRatio: 1 / 1.4142,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final pageWidth = constraints.maxWidth;
-                                final pageHeight = constraints.maxHeight;
-
-                                return Container(
-                                  key: const Key('pdf_page_canvas'),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                      color: const Color(0xFFCBD5E1),
-                                    ),
-                                  ),
-                                  child: Stack(
-                                    clipBehavior: Clip.hardEdge,
-                                    children: [
-                                      Positioned.fill(
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(24),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                widget.document.name,
-                                                style: const TextStyle(
-                                                  color: Color(0xFF475569),
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                'Pratinjau Halaman ${_currentPageIndex + 1} (${_pdfBytes?.length ?? 0} B)',
-                                                style: const TextStyle(
-                                                  color: Color(0xFF64748B),
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      for (final placement in pagePlacements)
-                                        DraggableSignatureOverlay(
-                                          key: ValueKey(
-                                            placement.id ??
-                                                '${placement.pageIndex}_${placement.xRatio}_${placement.yRatio}',
-                                          ),
-                                          placement: placement,
-                                          pageWidth: pageWidth,
-                                          pageHeight: pageHeight,
-                                          signatureBytes: _signatureBytes,
-                                          onDragDelta: (delta) {
-                                            if (placement.id == null) return;
-                                            _controller.dragPlacement(
-                                              id: placement.id!,
-                                              dx: delta.dx,
-                                              dy: delta.dy,
-                                              pageRenderWidth: pageWidth,
-                                              pageRenderHeight: pageHeight,
-                                            );
-                                          },
-                                          onResizeDelta: (delta) {
-                                            if (placement.id == null) return;
-                                            _controller.resizePlacement(
-                                              id: placement.id!,
-                                              dx: delta.dx,
-                                              dy: delta.dy,
-                                              pageRenderWidth: pageWidth,
-                                              pageRenderHeight: pageHeight,
-                                            );
-                                          },
-                                          onDelete: () {
-                                            if (placement.id == null) return;
-                                            _controller
-                                                .removePlacement(placement.id!);
-                                          },
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
+                      child: _buildPdfViewerArea(
+                        context: context,
+                        pagePlacements: pagePlacements,
                       ),
                     ),
                     const Divider(
@@ -567,7 +756,7 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
                                         size: 18,
                                       ),
                                       label: const Text(
-                                        'Bubuhkan Tanda Tangan',
+                                        'Sign',
                                         style: TextStyle(
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -596,7 +785,7 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
                                         ),
                                       ),
                                       child: const Text(
-                                        'Ganti TTD',
+                                        'Change sign',
                                         style: TextStyle(
                                           fontWeight: FontWeight.w600,
                                         ),

@@ -125,7 +125,7 @@ void main() {
         expect(disabledBtn.onPressed, isNull);
 
         // Place 1 signature
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
 
         final enabledBtn = tester.widget<ButtonStyleButton>(saveBtnFinder);
@@ -157,7 +157,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
 
         await tester.tap(find.byKey(const Key('save_signed_document_button')));
@@ -171,6 +171,7 @@ void main() {
 
         // Success dialog displays the new _signed.pdf name and action buttons
         expect(find.textContaining('Kontrak_signed.pdf'), findsWidgets);
+        expect(find.text('Export PDF'), findsWidgets);
         expect(find.text('Buka File _signed.pdf'), findsOneWidget);
         expect(find.text('Kembali ke Daftar Dokumen'), findsOneWidget);
       },
@@ -200,7 +201,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
         expect(find.byType(DraggableSignatureOverlay), findsOneWidget);
 

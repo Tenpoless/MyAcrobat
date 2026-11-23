@@ -265,5 +265,10 @@ void main() {
       expect(result.signedFile.name, 'Surat_Tugas_signed.pdf');
       expect(result.signedFile.isSigned, isTrue);
     });
+
+    test('MyAcrobatApiClient defaults baseUrl to AgriSign production server', () {
+      final client = MyAcrobatApiClient();
+      expect(client.baseUrl, 'https://syncro.saraswanti.co.id/agrisign');
+    });
   });
 }

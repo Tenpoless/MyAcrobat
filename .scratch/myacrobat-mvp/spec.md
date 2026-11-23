@@ -50,6 +50,9 @@ flowchart TD
     T13 --> T10
     T05 --> T11["11: Konfigurasi Deployment Server (Docker/PM2/aaPanel) & Script Distribusi APK/Web"]
     T10 --> T11
+    T02 --> T14["14: Migrasi CloudVaultAdapter dari megajs ke MEGAcmd"]
+    T04 --> T14
+    T05 --> T14
 ```
 
 ## Daftar Tiket Implementasi
@@ -69,3 +72,4 @@ flowchart TD
 | **11** | [`11-deployment-and-app-distribution.md`](file:///C:/laragon/www/MyAcrobat/.scratch/myacrobat-mvp/issues/11-deployment-and-app-distribution.md) | Konfigurasi deployment Server Kantor (aaPanel Node Project / PM2 / Docker) + script build distribusi Flutter (`.apk`, Windows `.zip`, Web) & panduan `DEPLOY.md`. | `ready-for-agent` | `05, 10` |
 | **12** | [`12-backend-syncro-auth-role-and-signature.md`](file:///C:/laragon/www/MyAcrobat/.scratch/myacrobat-mvp/issues/12-backend-syncro-auth-role-and-signature.md) | Integrasi Backend Node.js ke PostgreSQL `syncro_erp` (`users`, `module_role_assignments`, & sinkronisasi file `users.signature_path`). | `ready-for-agent` | `01` |
 | **13** | [`13-flutter-syncro-login-role-and-signature-sync.md`](file:///C:/laragon/www/MyAcrobat/.scratch/myacrobat-mvp/issues/13-flutter-syncro-login-role-and-signature-sync.md) | Halaman Login `syncro_erp` di Flutter, proteksi UI berdasarkan Role (`admin`/`signer`/`viewer`), & sinkronisasi otomatis TTD `users.signature_path`. | `ready-for-agent` | `06, 08, 12` |
+| **14** | [`14-backend-megacmd-cloud-vault-adapter.md`](file:///C:/laragon/www/MyAcrobat/.scratch/myacrobat-mvp/issues/14-backend-megacmd-cloud-vault-adapter.md) | Migrasi `CloudVaultAdapter` dari `megajs` ke CLI resmi `MEGAcmd` (`MegaCmdCloudVaultAdapter`) dengan sesi daemon persisten tanpa `MEGA_EMAIL`/`MEGA_PASSWORD` di `.env`. | `ready-for-agent` | `02, 04, 05` |

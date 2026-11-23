@@ -67,7 +67,6 @@ class AuthController extends StateNotifier<AuthState> {
   final SavedSignatureRepository _signatureRepository;
 
   Future<void> restoreSession() async {
-    await loadSavedOfficeServerUrl(_apiClient);
     final prefs = await SharedPreferences.getInstance();
     final savedToken = prefs.getString(kAuthTokenPrefKey)?.trim();
     final savedUserJson = prefs.getString(kAuthUserJsonPrefKey);

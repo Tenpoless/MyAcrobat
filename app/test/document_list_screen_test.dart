@@ -160,7 +160,7 @@ void main() {
   );
 
   testWidgets(
-    'updates Office Server URL via settings dialog, saves to SharedPreferences, and refreshes document list',
+    'does not render office server settings button in AppBar',
     (tester) async {
       final fakeClient = _FakeApiClient(({search}) async => sampleFiles);
 
@@ -177,26 +177,9 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(fakeClient.fetchCount, 1);
-
-      await tester.tap(find.byKey(const Key('office_server_settings_button')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Alamat Server Kantor'), findsOneWidget);
-
-      await tester.enterText(
-        find.byKey(const Key('office_server_url_input')),
-        'http://192.168.10.55:3000',
-      );
-      await tester.tap(find.byKey(const Key('save_office_server_url_button')));
-      await tester.pumpAndSettle();
-
-      expect(fakeClient.baseUrl, 'http://192.168.10.55:3000');
-      expect(fakeClient.fetchCount, 2);
-
-      final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getString(kOfficeServerUrlPrefKey),
-        'http://192.168.10.55:3000',
+        find.byKey(const Key('office_server_settings_button')),
+        findsNothing,
       );
     },
   );

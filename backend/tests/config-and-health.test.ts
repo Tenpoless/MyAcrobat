@@ -3,14 +3,13 @@ import { loadConfig } from '../src/config.js';
 import { buildApp } from '../src/app.js';
 
 describe('loadConfig', () => {
-  it('parses PORT, MEGA_EMAIL, MEGA_PASSWORD, and MEGA_ROOT_FOLDER from env', () => {
+  it('parses PORT, MEGA_ROOT_FOLDER, and MEGACMD_BIN_DIR from env without requiring MEGA_EMAIL or MEGA_PASSWORD', () => {
     const config = loadConfig({
       PORT: '4050',
       HOST: '127.0.0.1',
-      MEGA_EMAIL: 'vault@example.com',
-      MEGA_PASSWORD: 'secret-password',
-      MEGA_ROOT_FOLDER: 'MyAcrobat',
-      SYNCRO_DB_URL: 'postgresql://postgres:@127.0.0.1:5432/syncro_erp',
+      MEGA_ROOT_FOLDER: 'Testing',
+      MEGACMD_BIN_DIR: 'C:/Users/FARIZQI/AppData/Local/MEGAcmd',
+      SYNCRO_DB_URL: 'postgresql://postgres:@127.0.0.1:5432/syncro',
       SYNCRO_PUBLIC_STORAGE_DIR: 'C:/laragon/www/syncro_erp/storage/app/public',
       AUTH_TOKEN_SECRET: 'custom-secret',
     });
@@ -19,23 +18,20 @@ describe('loadConfig', () => {
       expect.objectContaining({
         port: 4050,
         host: '127.0.0.1',
-        megaEmail: 'vault@example.com',
-        megaPassword: 'secret-password',
-        megaRootFolder: 'MyAcrobat',
-        syncroDbUrl: 'postgresql://postgres:@127.0.0.1:5432/syncro_erp',
+        megaRootFolder: 'Testing',
+        megacmdBinDir: 'C:/Users/FARIZQI/AppData/Local/MEGAcmd',
+        syncroDbUrl: 'postgresql://postgres:@127.0.0.1:5432/syncro',
         syncroPublicStorageDir: 'C:/laragon/www/syncro_erp/storage/app/public',
         authTokenSecret: 'custom-secret',
       })
     );
   });
 
-  it('throws clear error when MEGA_EMAIL or MEGA_PASSWORD is missing', () => {
-    expect(() => loadConfig({ MEGA_EMAIL: 'vault@example.com' })).toThrow(
-      'Missing required Mega.nz credentials in environment: MEGA_EMAIL, MEGA_PASSWORD'
-    );
-    expect(() => loadConfig({ MEGA_PASSWORD: 'secret' })).toThrow(
-      'Missing required Mega.nz credentials in environment: MEGA_EMAIL, MEGA_PASSWORD'
-    );
+  it('provides sensible defaults when optional env vars are omitted', () => {
+    const config = loadConfig({});
+    expect(config.port).toBe(3000);
+    expect(config.host).toBe('0.0.0.0');
+    expect(config.megaRootFolder).toBe('');
   });
 });
 

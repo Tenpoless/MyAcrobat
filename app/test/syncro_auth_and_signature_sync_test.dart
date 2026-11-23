@@ -129,6 +129,11 @@ void main() {
 
         await tester.pumpAndSettle();
 
+        expect(
+          find.byKey(const Key('login_server_settings_button')),
+          findsNothing,
+        );
+
         await tester.enterText(
           find.byKey(const Key('login_identifier_input')),
           'EMP-101',
@@ -202,8 +207,8 @@ void main() {
 
         await tester.pumpAndSettle();
 
-        // Tap "Bubuhkan Tanda Tangan" -> since no saved signature, opens SignaturePadSheet
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        // Tap "Sign" -> since no saved signature, opens SignaturePadSheet
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
 
         expect(find.text('Buat Tanda Tangan'), findsOneWidget);
@@ -283,7 +288,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.textContaining('Mode Baca (Viewer)'), findsOneWidget);
-        expect(find.text('Bubuhkan Tanda Tangan'), findsNothing);
+        expect(find.text('Sign'), findsNothing);
 
         // Now test with admin/signer role
         const adminUser = SyncroUser(
@@ -327,8 +332,67 @@ void main() {
 
         await tester.pumpAndSettle();
 
-        expect(find.text('Bubuhkan Tanda Tangan'), findsOneWidget);
+        expect(find.text('Sign'), findsOneWidget);
         expect(find.text('Simpan Dokumen'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '4. Tickets 15 & 16: LoginScreen renders centered black MyAcrobat header, Login title, updated subtitle, form labels, placeholders, and hides Server Kantor footer',
+      (tester) async {
+        final sigRepo = SavedSignatureRepository(
+          storage: InMemorySignatureStorage(),
+        );
+        final fakeClient = _FakeSyncroApiClient(
+          onLogin: (_, _) => throw UnimplementedError(),
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              apiClientProvider.overrideWithValue(fakeClient),
+              savedSignatureRepositoryProvider.overrideWithValue(sigRepo),
+            ],
+            child: const MaterialApp(
+              home: LoginScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Ticket 15 checks:
+        final appBar = tester.widget<AppBar>(find.byType(AppBar));
+        expect(appBar.centerTitle, isTrue);
+        expect(find.text('MyAcrobat'), findsOneWidget);
+        expect(find.text('MyAcrobat: Login Syncro ERP'), findsNothing);
+
+        final titleText = tester.widget<Text>(find.text('MyAcrobat'));
+        expect(titleText.style?.color, Colors.black);
+
+        expect(find.text('Login'), findsOneWidget);
+        expect(find.text('Masuk dengan Akun Syncro ERP'), findsNothing);
+        expect(
+          find.text('Email / Username dan Password yang sama dengan akun syncro'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Server Kantor:'), findsNothing);
+
+        // Ticket 16 checks:
+        expect(find.text('Email atau Username'), findsOneWidget);
+        expect(find.text('NIK (Username) atau Email'), findsNothing);
+
+        final identifierField = tester.widget<TextField>(
+          find.byKey(const Key('login_identifier_input')),
+        );
+        expect(
+          identifierField.decoration?.hintText,
+          'example@gmail.com atau username',
+        );
+
+        final passwordField = tester.widget<TextField>(
+          find.byKey(const Key('login_password_input')),
+        );
+        expect(passwordField.decoration?.hintText, '***');
       },
     );
   });

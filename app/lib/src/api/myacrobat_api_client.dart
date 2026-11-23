@@ -16,7 +16,7 @@ class MyAcrobatApiClient {
 
   static const String defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:3000',
+    defaultValue: 'https://syncro.saraswanti.co.id/agrisign',
   );
 
   final Dio _dio;

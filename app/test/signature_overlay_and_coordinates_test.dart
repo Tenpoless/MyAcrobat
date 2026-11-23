@@ -154,11 +154,12 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Halaman 1 dari 2'), findsOneWidget);
-        expect(find.text('Bubuhkan Tanda Tangan'), findsOneWidget);
-        expect(find.text('Ganti TTD'), findsOneWidget);
+        expect(find.text('Sign'), findsOneWidget);
+        expect(find.text('Change sign'), findsOneWidget);
+        expect(find.byKey(const Key('export_pdf_button')), findsOneWidget);
 
         // Place signature on page 0 (Halaman 1)
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
 
         expect(find.byType(DraggableSignatureOverlay), findsOneWidget);
@@ -172,9 +173,9 @@ void main() {
         expect(find.byType(DraggableSignatureOverlay), findsNothing);
 
         // Place two signatures on page 1
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Bubuhkan Tanda Tangan'));
+        await tester.tap(find.text('Sign'));
         await tester.pumpAndSettle();
 
         expect(find.byType(DraggableSignatureOverlay), findsNWidgets(2));
@@ -184,6 +185,107 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(DraggableSignatureOverlay), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '6. PdfSigningScreen renders PDF page image for page 0 and page 1 when rasterized',
+      (tester) async {
+        final samplePng = Uint8List.fromList([
+          0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+          0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+          0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+          0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+          0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0,
+          0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99,
+          0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+          0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ]);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              savedSignatureRepositoryProvider.overrideWithValue(
+                SavedSignatureRepository(storage: InMemorySignatureStorage()),
+              ),
+            ],
+            child: MaterialApp(
+              home: PdfSigningScreen(
+                document: VaultPdfFile(
+                  fileId: 'render-test',
+                  name: 'dokumen_2_halaman.pdf',
+                  size: 1200,
+                  updatedAt: DateTime.utc(2026, 11, 20),
+                  isSigned: false,
+                ),
+                initialPageCount: 2,
+                pdfBytesLoader: (_) async => Uint8List.fromList([0x25, 0x50, 0x44, 0x46, 0x2D]),
+                pdfPageRenderer: (_, __) async => samplePng,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('pdf_rendered_page_render-test_0')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('next_page_button')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('pdf_rendered_page_render-test_1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '7. Pressing Export PDF button triggers pdfExporter callback with loaded PDF bytes and filename',
+      (tester) async {
+        Uint8List? exportedBytes;
+        String? exportedFileName;
+        final samplePdf = Uint8List.fromList([0x25, 0x50, 0x44, 0x46, 0x2D]);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              savedSignatureRepositoryProvider.overrideWithValue(
+                SavedSignatureRepository(storage: InMemorySignatureStorage()),
+              ),
+            ],
+            child: MaterialApp(
+              home: PdfSigningScreen(
+                document: VaultPdfFile(
+                  fileId: 'export-test',
+                  name: 'Laporan_Signed.pdf',
+                  size: 1200,
+                  updatedAt: DateTime.utc(2026, 11, 20),
+                  isSigned: true,
+                ),
+                initialPageCount: 1,
+                pdfBytesLoader: (_) async => samplePdf,
+                pdfExporter: (bytes, fileName) async {
+                  exportedBytes = bytes;
+                  exportedFileName = fileName;
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final exportBtn = find.byKey(const Key('export_pdf_button'));
+        expect(exportBtn, findsOneWidget);
+
+        await tester.tap(exportBtn);
+        await tester.pumpAndSettle();
+
+        expect(exportedBytes, equals(samplePdf));
+        expect(exportedFileName, 'Laporan_Signed.pdf');
       },
     );
   });

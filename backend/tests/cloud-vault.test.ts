@@ -1,8 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  MegaCloudVaultAdapter,
-  MegaFileNodeLike,
+  MegaCmdCloudVaultAdapter,
+  MegaCmdCommandRunner,
   VaultFileNotFoundError,
+  encodeFileNameToId,
   resolveSignedFileName,
 } from '../src/vault/cloud-vault.js';
 
@@ -41,126 +44,137 @@ describe('resolveSignedFileName (Signed Document non-destructive naming)', () =>
   });
 });
 
-function createFakeMegaStorage() {
+function createFakeMegaCmdRunner(): {
+  runner: MegaCmdCommandRunner;
+  calls: Array<{ subcommand: string; args: string[] }>;
+  uploadedFiles: Array<{ name: string; bytes: Uint8Array; remoteTarget: string }>;
+} {
   const samplePdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // %PDF
-  const workFolderChildren: MegaFileNodeLike[] = [
-    {
-      nodeId: 'node-1',
-      name: 'Kontrak.pdf',
-      size: 1024,
-      timestamp: 1700000100,
-      directory: false,
-      downloadBuffer: async () => Buffer.from(samplePdfBytes),
-    },
-    {
-      nodeId: 'node-2',
-      name: 'Kontrak_signed.pdf',
-      size: 2048,
-      timestamp: 1700000500,
-      directory: false,
-      downloadBuffer: async () => Buffer.from(samplePdfBytes),
-    },
-    {
-      nodeId: 'node-img',
-      name: 'Logo.png',
-      size: 512,
-      timestamp: 1700000900,
-      directory: false,
-    },
-    {
-      nodeId: 'node-dir',
-      name: 'Subfolder.pdf',
-      directory: true,
-      children: [],
-    },
-  ];
+  const calls: Array<{ subcommand: string; args: string[] }> = [];
+  const uploadedFiles: Array<{ name: string; bytes: Uint8Array; remoteTarget: string }> = [];
 
-  const workFolder: MegaFileNodeLike = {
-    nodeId: 'folder-myacrobat',
-    name: 'MyAcrobat',
-    directory: true,
-    children: workFolderChildren,
-    upload: ({ name, size }) => {
-      const created: MegaFileNodeLike = {
-        nodeId: `node-${workFolderChildren.length + 1}`,
-        name,
-        size: size ?? 0,
-        timestamp: 1700001000,
-        directory: false,
-      };
-      workFolderChildren.push(created);
-      return { complete: Promise.resolve(created) };
-    },
+  const lsOutput = [
+    '/Testing:',
+    'FLAGS VERS    SIZE            DATE       NAME',
+    '----    1     1024 2026-11-20T06:00:00 Welcome to MEGA.pdf',
+    '----    1     2048 2026-11-20T07:30:00 Welcome to MEGA_signed.pdf',
+    '----    1      512 2026-11-20T08:00:00 Logo.png',
+    'd---    -        - 2026-11-20T05:00:00 Subfolder.pdf',
+  ].join('\n');
+
+  const runner: MegaCmdCommandRunner = async (subcommand, args) => {
+    calls.push({ subcommand, args });
+
+    if (subcommand === 'ls') {
+      return { stdout: lsOutput, stderr: '' };
+    }
+
+    if (subcommand === 'get') {
+      const [remoteFilePath, localDestDir] = args;
+      const baseName = path.posix.basename(remoteFilePath);
+      await fs.promises.writeFile(
+        path.join(localDestDir, baseName),
+        Buffer.from(samplePdfBytes)
+      );
+      return { stdout: 'Download finished', stderr: '' };
+    }
+
+    if (subcommand === 'put') {
+      const [localSourceFile, remoteTarget] = args;
+      const bytes = await fs.promises.readFile(localSourceFile);
+      uploadedFiles.push({
+        name: path.basename(localSourceFile),
+        bytes: new Uint8Array(bytes),
+        remoteTarget,
+      });
+      return { stdout: 'Upload finished', stderr: '' };
+    }
+
+    throw new Error(`Unexpected subcommand: ${subcommand}`);
   };
 
-  return {
-    ready: Promise.resolve(),
-    root: {
-      nodeId: 'root',
-      name: 'Cloud Drive',
-      directory: true,
-      children: [workFolder],
-    },
-  };
+  return { runner, calls, uploadedFiles };
 }
 
-describe('MegaCloudVaultAdapter', () => {
-  it('lists only .pdf files (ignoring non-PDFs and folders), marks isSigned accurately, sorted newest first', async () => {
-    const adapter = new MegaCloudVaultAdapter({
-      email: 'vault@example.com',
-      password: 'secret',
-      rootFolder: 'MyAcrobat',
-      storageFactory: createFakeMegaStorage,
+describe('MegaCmdCloudVaultAdapter (MEGAcmd CLI integration)', () => {
+  it('lists only .pdf files (preserving spaces in filenames, ignoring non-PDFs and folders), marks isSigned accurately, sorted newest first', async () => {
+    const { runner, calls } = createFakeMegaCmdRunner();
+    const adapter = new MegaCmdCloudVaultAdapter({
+      rootFolder: 'Testing',
+      commandRunner: runner,
     });
 
     const files = await adapter.listPdfFiles();
 
+    expect(calls[0]).toEqual({
+      subcommand: 'ls',
+      args: ['-l', '--time-format=ISO6081_WITH_TIME', '/Testing'],
+    });
     expect(files).toEqual([
       {
-        fileId: 'node-2',
-        name: 'Kontrak_signed.pdf',
+        fileId: encodeFileNameToId('Welcome to MEGA_signed.pdf'),
+        name: 'Welcome to MEGA_signed.pdf',
         size: 2048,
-        updatedAt: new Date(1700000500 * 1000).toISOString(),
+        updatedAt: '2026-11-20T07:30:00.000Z',
         isSigned: true,
       },
       {
-        fileId: 'node-1',
-        name: 'Kontrak.pdf',
+        fileId: encodeFileNameToId('Welcome to MEGA.pdf'),
+        name: 'Welcome to MEGA.pdf',
         size: 1024,
-        updatedAt: new Date(1700000100 * 1000).toISOString(),
+        updatedAt: '2026-11-20T06:00:00.000Z',
         isSigned: false,
       },
     ]);
   });
 
-  it('downloads PDF bytes for an existing fileId and throws VaultFileNotFoundError when missing', async () => {
-    const adapter = new MegaCloudVaultAdapter({
-      email: 'vault@example.com',
-      password: 'secret',
-      rootFolder: 'MyAcrobat',
-      storageFactory: createFakeMegaStorage,
+  it('downloads PDF bytes via MEGAcmd get and throws VaultFileNotFoundError when missing', async () => {
+    const { runner } = createFakeMegaCmdRunner();
+    const adapter = new MegaCmdCloudVaultAdapter({
+      rootFolder: 'Testing',
+      commandRunner: runner,
     });
 
-    const result = await adapter.downloadPdf('node-1');
-    expect(result.file.name).toBe('Kontrak.pdf');
+    const targetId = encodeFileNameToId('Welcome to MEGA.pdf');
+    const result = await adapter.downloadPdf(targetId);
+
+    expect(result.file.name).toBe('Welcome to MEGA.pdf');
     expect(Array.from(result.bytes)).toEqual([0x25, 0x50, 0x44, 0x46]);
 
-    await expect(adapter.downloadPdf('unknown-node')).rejects.toThrow(VaultFileNotFoundError);
+    await expect(adapter.downloadPdf(encodeFileNameToId('TidakAda.pdf'))).rejects.toThrow(
+      VaultFileNotFoundError
+    );
   });
 
-  it('uploads a signed PDF using non-destructive _signed naming without overwriting existing files', async () => {
-    const adapter = new MegaCloudVaultAdapter({
-      email: 'vault@example.com',
-      password: 'secret',
-      rootFolder: 'MyAcrobat',
-      storageFactory: createFakeMegaStorage,
+  it('uploads a signed PDF via MEGAcmd put using non-destructive _signed naming without overwriting existing files', async () => {
+    const { runner, uploadedFiles } = createFakeMegaCmdRunner();
+    const adapter = new MegaCmdCloudVaultAdapter({
+      rootFolder: 'Testing',
+      commandRunner: runner,
     });
 
+    const sourceId = encodeFileNameToId('Welcome to MEGA.pdf');
     const signedBytes = new Uint8Array([1, 2, 3, 4, 5]);
-    const uploaded = await adapter.uploadSignedPdf('node-1', signedBytes);
+    const uploaded = await adapter.uploadSignedPdf(sourceId, signedBytes);
 
-    expect(uploaded.name).toBe('Kontrak_signed_2.pdf');
+    expect(uploaded.name).toBe('Welcome to MEGA_signed_2.pdf');
+    expect(uploaded.fileId).toBe(encodeFileNameToId('Welcome to MEGA_signed_2.pdf'));
     expect(uploaded.isSigned).toBe(true);
     expect(uploaded.size).toBe(5);
+    expect(uploadedFiles).toHaveLength(1);
+    expect(uploadedFiles[0].name).toBe('Welcome to MEGA_signed_2.pdf');
+    expect(uploadedFiles[0].remoteTarget).toBe('/Testing/');
+    expect(Array.from(uploadedFiles[0].bytes)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('throws actionable error when MEGAcmd daemon is not logged in', async () => {
+    const adapter = new MegaCmdCloudVaultAdapter({
+      rootFolder: 'Testing',
+      commandRunner: async () => {
+        throw new Error('[2026-11-20_07-46-03 cmd ERR  Not logged in.]');
+      },
+    });
+
+    await expect(adapter.listPdfFiles()).rejects.toThrow(/MEGAcmd belum login/i);
   });
 });

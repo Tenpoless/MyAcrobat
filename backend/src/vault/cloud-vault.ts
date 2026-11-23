@@ -1,4 +1,10 @@
-import { Storage } from 'megajs';
+import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 export interface VaultPdfFile {
   fileId: string;
@@ -49,180 +55,208 @@ export function resolveSignedFileName(
   return `${baseName}_signed_${counter}.pdf`;
 }
 
-export interface MegaFileNodeLike {
-  nodeId?: string;
-  downloadId?: string;
-  name: string | null;
-  size?: number;
-  timestamp?: number;
-  directory?: boolean;
-  children?: MegaFileNodeLike[];
-  downloadBuffer?: (options?: Record<string, unknown>) => Promise<Buffer | Uint8Array>;
-  upload?: (
-    options: { name: string; size?: number },
-    buffer: Buffer
-  ) => { complete: Promise<MegaFileNodeLike> } | Promise<MegaFileNodeLike>;
+export function encodeFileNameToId(fileName: string): string {
+  return Buffer.from(fileName.trim(), 'utf8').toString('base64url');
 }
 
-export interface MegaStorageLike {
-  ready: Promise<unknown>;
-  root: MegaFileNodeLike;
-}
-
-export interface MegaCloudVaultOptions {
-  email: string;
-  password: string;
-  rootFolder?: string;
-  storageFactory?: () => MegaStorageLike;
-}
-
-function toIsoTimestamp(timestamp?: number): string {
-  if (!timestamp || !Number.isFinite(timestamp)) {
-    return new Date(0).toISOString();
+export function decodeFileIdToName(fileId: string): string {
+  try {
+    return Buffer.from(fileId.trim(), 'base64url').toString('utf8');
+  } catch {
+    return '';
   }
-  const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-  return new Date(ms).toISOString();
 }
 
-function mapNodeToVaultPdfFile(node: MegaFileNodeLike): VaultPdfFile {
-  const fileId = node.nodeId || node.downloadId || '';
-  const name = node.name || 'unnamed.pdf';
-  return {
-    fileId,
-    name,
-    size: node.size ?? 0,
-    updatedAt: toIsoTimestamp(node.timestamp),
-    isSigned: isSignedPdfName(name),
+export type MegaCmdCommandRunner = (
+  subcommand: 'ls' | 'get' | 'put' | 'whoami',
+  args: string[]
+) => Promise<{ stdout: string; stderr: string }>;
+
+export interface MegaCmdCloudVaultOptions {
+  rootFolder?: string;
+  binDir?: string;
+  commandRunner?: MegaCmdCommandRunner;
+}
+
+function normalizeRemoteFolder(rootFolder?: string): string {
+  const cleaned = (rootFolder ?? '').trim().replace(/^\/+|\/+$/g, '');
+  return cleaned ? `/${cleaned}` : '/';
+}
+
+function buildRemoteFilePath(remoteFolder: string, fileName: string): string {
+  return remoteFolder === '/' ? `/${fileName}` : `${remoteFolder}/${fileName}`;
+}
+
+function createDefaultMegaCmdRunner(binDir?: string): MegaCmdCommandRunner {
+  const resolvedBinDir = (binDir ?? '').trim();
+
+  return async (subcommand, args) => {
+    const isWin = process.platform === 'win32';
+    let executable: string;
+    let execArgs: string[];
+
+    if (isWin) {
+      const candidateExe = resolvedBinDir
+        ? path.join(resolvedBinDir, 'MEGAclient.exe')
+        : path.join(process.env.LOCALAPPDATA ?? '', 'MEGAcmd', 'MEGAclient.exe');
+      executable = fs.existsSync(candidateExe) ? candidateExe : 'MEGAclient.exe';
+      execArgs = [subcommand, ...args];
+    } else {
+      executable = resolvedBinDir
+        ? path.join(resolvedBinDir, `mega-${subcommand}`)
+        : `mega-${subcommand}`;
+      execArgs = args;
+    }
+
+    const result = await execFileAsync(executable, execArgs, {
+      windowsHide: true,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return {
+      stdout: String(result.stdout ?? ''),
+      stderr: String(result.stderr ?? ''),
+    };
   };
 }
 
-export class MegaCloudVaultAdapter implements CloudVault {
-  private storagePromise: Promise<MegaStorageLike> | null = null;
-  private readonly email: string;
-  private readonly password: string;
-  private readonly rootFolder: string;
-  private readonly storageFactory: () => MegaStorageLike;
+// Matches file lines in `mega-ls -l --time-format=ISO6081_WITH_TIME`
+// Example: "----    1     1024 2026-11-20T06:00:00 Welcome to MEGA.pdf"
+const LS_ISO_FILE_LINE_REGEX =
+  /^-[-\w]{3}\s+(?:\d+|-)\s+(\d+)\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\s+(.+)$/;
 
-  constructor(options: MegaCloudVaultOptions) {
-    this.email = options.email;
-    this.password = options.password;
-    this.rootFolder = (options.rootFolder ?? '').trim();
-    this.storageFactory =
-      options.storageFactory ??
-      (() =>
-        new Storage({
-          email: this.email,
-          password: this.password,
-          keepalive: false,
-        }) as unknown as MegaStorageLike);
+function parseIsoUtcTimestamp(rawIso: string): string {
+  const withZ = rawIso.endsWith('Z') ? rawIso : `${rawIso}Z`;
+  const parsed = new Date(withZ);
+  return Number.isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
+}
+
+function normalizeMegaCmdError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/not logged in/i.test(message)) {
+    return new Error(
+      'MEGAcmd belum login. Jalankan perintah "login <email>" di MEGAcmdShell terlebih dahulu.'
+    );
+  }
+  return err instanceof Error ? err : new Error(message);
+}
+
+export class MegaCmdCloudVaultAdapter implements CloudVault {
+  private readonly remoteFolder: string;
+  private readonly commandRunner: MegaCmdCommandRunner;
+
+  constructor(options: MegaCmdCloudVaultOptions = {}) {
+    this.remoteFolder = normalizeRemoteFolder(options.rootFolder);
+    this.commandRunner = options.commandRunner ?? createDefaultMegaCmdRunner(options.binDir);
   }
 
-  private async getTargetFolder(): Promise<MegaFileNodeLike> {
-    if (!this.storagePromise) {
-      this.storagePromise = (async () => {
-        const storage = this.storageFactory();
-        await storage.ready;
-        return storage;
-      })().catch((err) => {
-        this.storagePromise = null;
-        throw err;
-      });
-    }
-
-    const storage = await this.storagePromise;
-    if (!this.rootFolder) {
-      return storage.root;
-    }
-
-    const segments = this.rootFolder.split('/').filter(Boolean);
-    let current: MegaFileNodeLike = storage.root;
-
-    for (const segment of segments) {
-      const children = current.children ?? [];
-      const next = children.find(
-        (child) => child.directory && child.name?.toLowerCase() === segment.toLowerCase()
-      );
-      if (!next) {
-        throw new Error(`Folder Mega.nz "${this.rootFolder}" tidak ditemukan`);
+  private async runCommand(
+    subcommand: 'ls' | 'get' | 'put' | 'whoami',
+    args: string[]
+  ): Promise<{ stdout: string; stderr: string }> {
+    try {
+      const output = await this.commandRunner(subcommand, args);
+      if (/not logged in/i.test(output.stderr) || /not logged in/i.test(output.stdout)) {
+        throw new Error(output.stderr || output.stdout);
       }
-      current = next;
+      return output;
+    } catch (err) {
+      throw normalizeMegaCmdError(err);
     }
-
-    return current;
   }
 
   async listPdfFiles(): Promise<VaultPdfFile[]> {
-    const folder = await this.getTargetFolder();
-    const children = folder.children ?? [];
+    const { stdout } = await this.runCommand('ls', [
+      '-l',
+      '--time-format=ISO6081_WITH_TIME',
+      this.remoteFolder,
+    ]);
 
-    return children
-      .filter(
-        (node) =>
-          !node.directory &&
-          typeof node.name === 'string' &&
-          node.name.toLowerCase().endsWith('.pdf')
-      )
-      .map(mapNodeToVaultPdfFile)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const files: VaultPdfFile[] = [];
+    for (const rawLine of stdout.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      const match = LS_ISO_FILE_LINE_REGEX.exec(line);
+      if (!match) {
+        continue;
+      }
+
+      const size = Number(match[1]) || 0;
+      const rawDate = match[2];
+      const name = match[3].trim();
+
+      if (!name.toLowerCase().endsWith('.pdf')) {
+        continue;
+      }
+
+      files.push({
+        fileId: encodeFileNameToId(name),
+        name,
+        size,
+        updatedAt: parseIsoUtcTimestamp(rawDate),
+        isSigned: isSignedPdfName(name),
+      });
+    }
+
+    return files.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async downloadPdf(fileId: string): Promise<{ file: VaultPdfFile; bytes: Uint8Array }> {
-    const folder = await this.getTargetFolder();
-    const children = folder.children ?? [];
-    const target = children.find(
-      (node) =>
-        !node.directory &&
-        typeof node.name === 'string' &&
-        node.name.toLowerCase().endsWith('.pdf') &&
-        (node.nodeId === fileId || node.downloadId === fileId)
-    );
-
-    if (!target || typeof target.downloadBuffer !== 'function') {
+    const files = await this.listPdfFiles();
+    const targetFile = files.find((f) => f.fileId === fileId);
+    if (!targetFile) {
       throw new VaultFileNotFoundError(fileId);
     }
 
-    const buffer = await target.downloadBuffer({});
-    return {
-      file: mapNodeToVaultPdfFile(target),
-      bytes: new Uint8Array(buffer),
-    };
+    const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'myacrobat-get-'));
+    try {
+      const remoteFilePath = buildRemoteFilePath(this.remoteFolder, targetFile.name);
+      await this.runCommand('get', [remoteFilePath, tempDir]);
+
+      const localFilePath = path.join(tempDir, targetFile.name);
+      if (!fs.existsSync(localFilePath)) {
+        throw new VaultFileNotFoundError(fileId);
+      }
+
+      const buffer = await fs.promises.readFile(localFilePath);
+      return {
+        file: targetFile,
+        bytes: new Uint8Array(buffer),
+      };
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    }
   }
 
   async uploadSignedPdf(
     sourceFileId: string,
     signedPdfBytes: Uint8Array
   ): Promise<VaultPdfFile> {
-    const folder = await this.getTargetFolder();
-    const children = folder.children ?? [];
-    const sourceNode = children.find(
-      (node) =>
-        !node.directory &&
-        typeof node.name === 'string' &&
-        node.name.toLowerCase().endsWith('.pdf') &&
-        (node.nodeId === sourceFileId || node.downloadId === sourceFileId)
-    );
-
-    if (!sourceNode || !sourceNode.name) {
+    const files = await this.listPdfFiles();
+    const sourceFile = files.find((f) => f.fileId === sourceFileId);
+    if (!sourceFile) {
       throw new VaultFileNotFoundError(sourceFileId);
     }
 
-    const existingNames = children
-      .filter((node) => !node.directory && typeof node.name === 'string')
-      .map((node) => node.name as string);
+    const existingNames = files.map((f) => f.name);
+    const signedName = resolveSignedFileName(sourceFile.name, existingNames);
 
-    const signedName = resolveSignedFileName(sourceNode.name, existingNames);
+    const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'myacrobat-put-'));
+    try {
+      const localFilePath = path.join(tempDir, signedName);
+      await fs.promises.writeFile(localFilePath, Buffer.from(signedPdfBytes));
 
-    if (typeof folder.upload !== 'function') {
-      throw new Error('Folder Mega.nz tidak mendukung operasi upload');
+      const remoteTargetDir =
+        this.remoteFolder === '/' ? '/' : `${this.remoteFolder}/`;
+      await this.runCommand('put', [localFilePath, remoteTargetDir]);
+
+      return {
+        fileId: encodeFileNameToId(signedName),
+        name: signedName,
+        size: signedPdfBytes.byteLength,
+        updatedAt: new Date().toISOString(),
+        isSigned: isSignedPdfName(signedName),
+      };
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
     }
-
-    const buffer = Buffer.from(signedPdfBytes);
-    const uploadResult = folder.upload({ name: signedName, size: buffer.byteLength }, buffer);
-    const uploadedNode =
-      'complete' in uploadResult
-        ? await uploadResult.complete
-        : await (uploadResult as Promise<MegaFileNodeLike>);
-
-    return mapNodeToVaultPdfFile(uploadedNode);
   }
 }
