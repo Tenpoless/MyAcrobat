@@ -1,6 +1,6 @@
 {
-    "name": "myacrobat_app",
-    "short_name": "myacrobat_app",
+    "name": "AgriSign",
+    "short_name": "AgriSign",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

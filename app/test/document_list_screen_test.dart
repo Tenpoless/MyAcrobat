@@ -83,6 +83,9 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      expect(find.text('AgriSign'), findsOneWidget);
+      expect(find.textContaining('MyAcrobat'), findsNothing);
+
       expect(find.text('Surat_Perjanjian.pdf'), findsOneWidget);
       expect(find.text('Surat_Perjanjian_signed.pdf'), findsOneWidget);
       expect(find.text('Memo_Internal.pdf'), findsOneWidget);

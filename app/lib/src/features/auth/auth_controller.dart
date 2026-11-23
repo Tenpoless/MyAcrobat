@@ -118,7 +118,7 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: 'Login gagal: Periksa NIK/Email, Password, atau koneksi Server Kantor.',
+        errorMessage: 'Email atau Password salah',
       );
       return false;
     }

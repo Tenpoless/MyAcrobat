@@ -360,16 +360,25 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Ticket 15 checks:
+        // Ticket 15 & 18 checks:
         final appBar = tester.widget<AppBar>(find.byType(AppBar));
         expect(appBar.centerTitle, isTrue);
-        expect(find.text('MyAcrobat'), findsOneWidget);
+        expect(find.text('AgriSign'), findsOneWidget);
+        expect(find.text('MyAcrobat'), findsNothing);
         expect(find.text('MyAcrobat: Login Syncro ERP'), findsNothing);
 
-        final titleText = tester.widget<Text>(find.text('MyAcrobat'));
+        final titleText = tester.widget<Text>(find.text('AgriSign'));
         expect(titleText.style?.color, Colors.black);
 
-        expect(find.text('Login'), findsOneWidget);
+        expect(find.text('Login'), findsNWidgets(2));
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('login_submit_button')),
+            matching: find.text('Login'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Masuk ke MyAcrobat'), findsNothing);
         expect(find.text('Masuk dengan Akun Syncro ERP'), findsNothing);
         expect(
           find.text('Email / Username dan Password yang sama dengan akun syncro'),
@@ -386,13 +395,113 @@ void main() {
         );
         expect(
           identifierField.decoration?.hintText,
-          'example@gmail.com atau username',
+          'example@gmail.com',
         );
 
         final passwordField = tester.widget<TextField>(
           find.byKey(const Key('login_password_input')),
         );
         expect(passwordField.decoration?.hintText, '***');
+      },
+    );
+
+    testWidgets(
+      '5. Ticket 20: LoginScreen displays "Email atau Password salah" when login fails',
+      (tester) async {
+        final sigRepo = SavedSignatureRepository();
+        final fakeClient = _FakeSyncroApiClient(
+          onLogin: (_, _) => throw Exception('Unauthorized'),
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              apiClientProvider.overrideWithValue(fakeClient),
+              savedSignatureRepositoryProvider.overrideWithValue(sigRepo),
+            ],
+            child: const MaterialApp(
+              home: LoginScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('login_identifier_input')),
+          'user@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const Key('login_password_input')),
+          'wrongpass',
+        );
+        await tester.tap(find.byKey(const Key('login_submit_button')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Email atau Password salah'), findsOneWidget);
+        expect(find.textContaining('Login gagal:'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'LoginScreen toggles password visibility via eye icon button',
+      (tester) async {
+        final sigRepo = SavedSignatureRepository(
+          storage: InMemorySignatureStorage(),
+        );
+        final fakeClient = _FakeSyncroApiClient(
+          onLogin: (_, _) => throw UnimplementedError(),
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              apiClientProvider.overrideWithValue(fakeClient),
+              savedSignatureRepositoryProvider.overrideWithValue(sigRepo),
+            ],
+            child: const MaterialApp(
+              home: LoginScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final passwordFinder = find.byKey(const Key('login_password_input'));
+        final toggleFinder = find.byKey(
+          const Key('login_password_visibility_toggle'),
+        );
+
+        expect(tester.widget<TextField>(passwordFinder).obscureText, isTrue);
+        expect(
+          find.descendant(
+            of: toggleFinder,
+            matching: find.byIcon(Icons.visibility_off),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(toggleFinder);
+        await tester.pump();
+
+        expect(tester.widget<TextField>(passwordFinder).obscureText, isFalse);
+        expect(
+          find.descendant(
+            of: toggleFinder,
+            matching: find.byIcon(Icons.visibility),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(toggleFinder);
+        await tester.pump();
+
+        expect(tester.widget<TextField>(passwordFinder).obscureText, isTrue);
+        expect(
+          find.descendant(
+            of: toggleFinder,
+            matching: find.byIcon(Icons.visibility_off),
+          ),
+          findsOneWidget,
+        );
       },
     );
   });

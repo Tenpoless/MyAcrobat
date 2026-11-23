@@ -19,6 +19,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   late final TextEditingController _identifierController;
   late final TextEditingController _passwordController;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -70,7 +71,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         elevation: 0,
         centerTitle: true,
         title: const Text(
-          'MyAcrobat',
+          'AgriSign',
           style: TextStyle(
             color: Colors.black,
             fontSize: 18,
@@ -129,7 +130,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       fontSize: 15,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'example@gmail.com atau username',
+                      hintText: 'example@gmail.com',
                       hintStyle: const TextStyle(color: Color(0xFF64748B)),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -167,7 +168,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   TextField(
                     key: const Key('login_password_input'),
                     controller: _passwordController,
-                    obscureText: true,
+                    obscureText: _obscurePassword,
                     onSubmitted: (_) => _handleLoginSubmit(),
                     style: const TextStyle(
                       color: Color(0xFF0F172A),
@@ -175,6 +176,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     decoration: InputDecoration(
                       hintText: '***',
+                      suffixIcon: IconButton(
+                        key: const Key('login_password_visibility_toggle'),
+                        tooltip: _obscurePassword
+                            ? 'Tampilkan password'
+                            : 'Sembunyikan password',
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: const Color(0xFF64748B),
+                        ),
+                        onPressed: () {
+                          setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          );
+                        },
+                      ),
                       hintStyle: const TextStyle(color: Color(0xFF64748B)),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -237,7 +255,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: Text(
                         authState.isLoading
                             ? 'Memverifikasi Akun...'
-                            : 'Masuk ke MyAcrobat',
+                            : 'Login',
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,

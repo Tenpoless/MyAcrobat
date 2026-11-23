@@ -64,7 +64,7 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text(
-          'MyAcrobat: Dokumen Mega.nz',
+          'AgriSign',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w600,
