@@ -47,3 +47,13 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    doLast {
+        val releaseApk = layout.buildDirectory.dir("outputs/apk/release").get().asFile.resolve("app-release.apk")
+        val flutterApkDir = layout.buildDirectory.dir("outputs/flutter-apk").get().asFile
+        if (releaseApk.exists()) {
+            releaseApk.copyTo(flutterApkDir.resolve("AgriDocs.apk"), overwrite = true)
+        }
+    }
+}

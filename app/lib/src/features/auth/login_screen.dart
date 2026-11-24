@@ -71,7 +71,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         elevation: 0,
         centerTitle: true,
         title: const Text(
-          'AgriSign',
+          'AgriDocs',
           style: TextStyle(
             color: Colors.black,
             fontSize: 18,

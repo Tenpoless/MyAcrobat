@@ -1,6 +1,6 @@
 {
-    "name": "AgriSign",
-    "short_name": "AgriSign",
+    "name": "AgriDocs",
+    "short_name": "AgriDocs",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

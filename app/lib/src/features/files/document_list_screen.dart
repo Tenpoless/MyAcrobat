@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/vault_folder.dart';
 import '../../models/vault_pdf_file.dart';
 import '../auth/auth_controller.dart';
 import '../auth/login_screen.dart';
@@ -39,6 +40,74 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
     ref.read(searchQueryProvider.notifier).state = '';
   }
 
+  void _goToDepth(int depth) {
+    _clearSearch();
+    ref.read(documentListProvider.notifier).goToDepth(depth);
+  }
+
+  void _openFolder(VaultFolder folder) {
+    _clearSearch();
+    ref.read(documentListProvider.notifier).openFolder(folder);
+  }
+
+  Widget _buildBreadcrumb(List<VaultFolder> path) {
+    final labels = <String>['Google Drive', ...path.map((f) => f.name)];
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            for (var i = 0; i < labels.length; i++) ...[
+              if (i > 0)
+                const Icon(Icons.chevron_right,
+                    size: 18, color: Color(0xFF475569)),
+              TextButton(
+                onPressed: i == labels.length - 1 ? null : () => _goToDepth(i),
+                child: Text(
+                  labels[i],
+                  style: TextStyle(
+                    color: i == labels.length - 1
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFFB91C1C),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFolderTile(VaultFolder folder) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      child: ListTile(
+        key: Key('folder_${folder.folderId}'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        leading: const Icon(Icons.folder, color: Color(0xFF475569), size: 30),
+        title: Text(
+          folder.name,
+          style: const TextStyle(
+            color: Color(0xFF0F172A),
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Color(0xFF475569)),
+        onTap: () => _openFolder(folder),
+      ),
+    );
+  }
+
   String _formatDate(DateTime dateTime) {
     final local = dateTime.toLocal();
     final y = local.year.toString().padLeft(4, '0');
@@ -56,15 +125,21 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
     final allDocsAsync = ref.watch(documentListProvider);
     final filteredDocsAsync = ref.watch(filteredDocumentsProvider);
     final searchQuery = ref.watch(searchQueryProvider);
+    final folderPath = ref.watch(folderPathProvider);
 
-    return Scaffold(
+    return PopScope(
+      canPop: folderPath.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goToDepth(folderPath.length - 1);
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text(
-          'AgriSign',
+          'AgriDocs',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w600,
@@ -210,6 +285,8 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
             ),
           ),
           const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+          _buildBreadcrumb(folderPath),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
           Expanded(
             child: filteredDocsAsync.when(
               loading: () => const Center(
@@ -223,7 +300,7 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
                       ),
                       SizedBox(height: 16),
                       Text(
-                        'Memuat daftar dokumen PDF dari Mega.nz...',
+                        'Memuat daftar dokumen PDF dari Google Drive...',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Color(0xFF334155),
@@ -286,10 +363,12 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
                   ),
                 ),
               ),
-              data: (files) {
-                final allFiles = allDocsAsync.valueOrNull ?? files;
+              data: (listing) {
+                final files = listing.files;
+                final folders = listing.folders;
+                final allFiles = allDocsAsync.valueOrNull?.files ?? files;
 
-                if (files.isEmpty) {
+                if (files.isEmpty && folders.isEmpty) {
                   final hasQuery = searchQuery.trim().isNotEmpty;
                   return Center(
                     child: Padding(
@@ -306,7 +385,7 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
                           Text(
                             hasQuery
                                 ? 'Tidak ada dokumen PDF dengan nama "$searchQuery".'
-                                : 'Belum ada dokumen PDF di folder Mega.nz.',
+                                : 'Belum ada dokumen PDF di folder Google Drive.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: Color(0xFF0F172A),
@@ -318,7 +397,7 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
                           Text(
                             hasQuery
                                 ? 'Periksa ejaan kata kunci atau bersihkan kolom pencarian.'
-                                : 'Unggah file PDF ke folder Mega.nz lalu muat ulang halaman ini.',
+                                : 'Unggah file PDF ke folder Google Drive lalu muat ulang halaman ini.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: Color(0xFF475569),
@@ -360,10 +439,13 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
                       ref.read(documentListProvider.notifier).refresh(),
                   child: ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    itemCount: files.length,
+                    itemCount: folders.length + files.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
-                      final file = files[index];
+                      if (index < folders.length) {
+                        return _buildFolderTile(folders[index]);
+                      }
+                      final file = files[index - folders.length];
                       final hasCounterpart =
                           hasSignedCounterpart(file, allFiles);
 
@@ -507,6 +589,7 @@ class _DocumentListScreenState extends ConsumerState<DocumentListScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

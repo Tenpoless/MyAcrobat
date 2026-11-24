@@ -41,7 +41,7 @@ class _MyAcrobatAppState extends ConsumerState<MyAcrobatApp> {
     final authState = ref.watch(authControllerProvider);
 
     return MaterialApp(
-      title: 'AgriSign',
+      title: 'AgriDocs',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

@@ -256,7 +256,7 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
             ),
           ),
           content: Text(
-            'File baru ${result.signedFile.name} telah disimpan ke Mega.nz.',
+            'File baru ${result.signedFile.name} telah disimpan ke Google Drive.',
             style: const TextStyle(
               color: Color(0xFF475569),
               fontSize: 14,
@@ -321,11 +321,7 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
       setState(() {
         _isSaving = false;
       });
-      final errorMsg = (e is DioException &&
-              e.response?.data is Map &&
-              (e.response?.data as Map)['error'] != null)
-          ? (e.response?.data as Map)['error'].toString()
-          : e.toString();
+      final errorMsg = _formatSaveErrorMessage(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF0F172A),
@@ -338,6 +334,24 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
         ),
       );
     }
+  }
+
+  String _formatSaveErrorMessage(Object error) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map) {
+        final serverMsg = (data['error'] ?? data['message'])?.toString().trim();
+        if (serverMsg != null && serverMsg.isNotEmpty) {
+          return serverMsg;
+        }
+      }
+      final statusCode = error.response?.statusCode;
+      if (statusCode != null) {
+        return 'Terjadi kesalahan pada server (HTTP $statusCode). Silakan coba lagi atau hubungi admin.';
+      }
+      return 'Gagal terhubung ke server. Periksa koneksi lalu coba lagi.';
+    }
+    return error.toString();
   }
 
   Future<void> _renderPageIfNeeded(int pageIndex) async {
@@ -684,7 +698,7 @@ class _PdfSigningScreenState extends ConsumerState<PdfSigningScreen> {
                                     ),
                                     SizedBox(width: 8),
                                     Text(
-                                      'Menyimpan & Mengunggah ke Mega.nz...',
+                                      'Menyimpan & Mengunggah ke Google Drive...',
                                       style: TextStyle(
                                         color: Color(0xFF475569),
                                         fontSize: 13,

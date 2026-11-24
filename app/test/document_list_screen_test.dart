@@ -8,6 +8,7 @@ import 'package:myacrobat_app/src/features/files/document_list_provider.dart';
 import 'package:myacrobat_app/src/features/files/document_list_screen.dart';
 import 'package:myacrobat_app/src/models/sign_document_result.dart';
 import 'package:myacrobat_app/src/models/signature_placement.dart';
+import 'package:myacrobat_app/src/models/vault_folder.dart';
 import 'package:myacrobat_app/src/models/vault_pdf_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -24,6 +25,10 @@ class _FakeApiClient extends MyAcrobatApiClient {
   }
 
   @override
+  Future<VaultDirectoryListing> fetchDirectory({String? search}) async =>
+      VaultDirectoryListing(files: await fetchFiles(search: search));
+
+  @override
   Future<Uint8List> downloadPdfBytes(String fileId) async => Uint8List(0);
 
   @override
@@ -36,6 +41,25 @@ class _FakeApiClient extends MyAcrobatApiClient {
   }
 }
 
+class _FolderFakeClient extends MyAcrobatApiClient {
+  @override
+  Future<VaultDirectoryListing> fetchDirectory({String? search}) async {
+    if (activeFolderId == 'sub-1') {
+      return VaultDirectoryListing(files: [
+        VaultPdfFile(
+          fileId: 'in-sub',
+          name: 'Di_Dalam_Folder.pdf',
+          size: 100,
+          updatedAt: DateTime.parse('2026-11-20T01:00:00.000Z'),
+          isSigned: false,
+        ),
+      ]);
+    }
+    return const VaultDirectoryListing(
+      folders: [VaultFolder(folderId: 'sub-1', name: 'Kebun A')],
+    );
+  }
+}
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -83,7 +107,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('AgriSign'), findsOneWidget);
+      expect(find.text('AgriDocs'), findsOneWidget);
       expect(find.textContaining('MyAcrobat'), findsNothing);
 
       expect(find.text('Surat_Perjanjian.pdf'), findsOneWidget);
@@ -132,7 +156,7 @@ void main() {
       var shouldFail = true;
       final fakeClient = _FakeApiClient(({search}) async {
         if (shouldFail) {
-          throw Exception('Koneksi ke server Mega.nz terputus');
+          throw Exception('Koneksi ke server Google Drive terputus');
         }
         return sampleFiles;
       });
@@ -186,4 +210,26 @@ void main() {
       );
     },
   );
+
+  testWidgets('opens a folder, shows its PDFs, and returns via breadcrumb', (tester) async {
+    final client = _FolderFakeClient();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiClientProvider.overrideWithValue(client)],
+        child: const MaterialApp(home: DocumentListScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Kebun A'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('folder_sub-1')));
+    await tester.pumpAndSettle();
+    expect(client.activeFolderId, 'sub-1');
+    expect(find.text('Di_Dalam_Folder.pdf'), findsOneWidget);
+
+    await tester.tap(find.text('Google Drive'));
+    await tester.pumpAndSettle();
+    expect(client.activeFolderId, isNull);
+    expect(find.text('Kebun A'), findsOneWidget);
+  });
 }

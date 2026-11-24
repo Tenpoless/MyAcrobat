@@ -1,5 +1,5 @@
 name: myacrobat_app
-description: "MyAcrobat MVP — PDF Reader & Quick E-Signature integrated with Mega.nz"
+description: "MyAcrobat MVP — PDF Reader & Quick E-Signature integrated with Google Drive"
 publish_to: 'none'
 version: 1.0.0+1
 

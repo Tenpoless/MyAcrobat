@@ -6,13 +6,22 @@ import 'package:dio/dio.dart';
 import '../models/sign_document_result.dart';
 import '../models/signature_placement.dart';
 import '../models/syncro_user.dart';
+import '../models/vault_folder.dart';
 import '../models/vault_pdf_file.dart';
 
 class MyAcrobatApiClient {
   MyAcrobatApiClient({
     Dio? dio,
     String baseUrl = defaultBaseUrl,
-  }) : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl));
+  }) : _dio = dio ??
+            Dio(
+              BaseOptions(
+                baseUrl: baseUrl,
+                headers: const <String, dynamic>{
+                  'Accept': 'application/json',
+                },
+              ),
+            );
 
   static const String defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
@@ -76,29 +85,44 @@ class MyAcrobatApiClient {
     );
   }
 
+  /// Folder Google Drive yang sedang dibuka (null = folder utama server).
+  /// Dipakai otomatis oleh list, download, dan sign.
+  String? activeFolderId;
+
   Future<List<VaultPdfFile>> fetchFiles({String? search}) async {
+    return (await fetchDirectory(search: search)).files;
+  }
+
+  Future<VaultDirectoryListing> fetchDirectory({String? search}) async {
     final trimmedSearch = search?.trim();
+    final query = <String, dynamic>{
+      if (trimmedSearch != null && trimmedSearch.isNotEmpty)
+        'search': trimmedSearch,
+      'folderId': ?activeFolderId,
+    };
     final response = await _dio.get<Map<String, dynamic>>(
       '/api/files',
-      queryParameters: (trimmedSearch != null && trimmedSearch.isNotEmpty)
-          ? <String, dynamic>{'search': trimmedSearch}
-          : null,
+      queryParameters: query.isEmpty ? null : query,
     );
 
-    final rawFiles = response.data?['files'] as List<dynamic>? ?? const [];
-    return rawFiles
-        .map(
-          (item) => VaultPdfFile.fromJson(
-            Map<String, dynamic>.from(item as Map),
-          ),
-        )
-        .toList();
+    List<T> parse<T>(String key, T Function(Map<String, dynamic>) from) {
+      final raw = response.data?[key] as List<dynamic>? ?? const [];
+      return raw
+          .map((item) => from(Map<String, dynamic>.from(item as Map)))
+          .toList();
+    }
+
+    return VaultDirectoryListing(
+      folders: parse('folders', VaultFolder.fromJson),
+      files: parse('files', VaultPdfFile.fromJson),
+    );
   }
 
   Future<Uint8List> downloadPdfBytes(String fileId) async {
     final encodedId = Uri.encodeComponent(fileId);
     final response = await _dio.get<List<int>>(
       '/api/files/$encodedId/download',
+      queryParameters: <String, dynamic>{'folderId': ?activeFolderId},
       options: Options(responseType: ResponseType.bytes),
     );
 
@@ -123,6 +147,7 @@ class MyAcrobatApiClient {
       data: <String, dynamic>{
         'signatureImageBase64': signatureDataUri,
         'placements': placements.map((p) => p.toJson()).toList(),
+        'folderId': ?activeFolderId,
       },
     );
 

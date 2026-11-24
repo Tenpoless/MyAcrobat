@@ -212,7 +212,7 @@ void main() {
         }
         return ResponseBody.fromString(
           jsonEncode({
-            'message': 'Dokumen berhasil ditandatangani dan disimpan ke Mega.nz',
+            'message': 'Dokumen berhasil ditandatangani dan disimpan ke Google Drive',
             'sourceFileId': 'f-1',
             'signedFile': {
               'fileId': 'f-2',
@@ -266,7 +266,7 @@ void main() {
       expect(result.signedFile.isSigned, isTrue);
     });
 
-    test('MyAcrobatApiClient defaults baseUrl to AgriSign production server', () {
+    test('MyAcrobatApiClient defaults baseUrl to AgriDocs production server', () {
       final client = MyAcrobatApiClient();
       expect(client.baseUrl, 'https://syncro.saraswanti.co.id/agrisign');
     });

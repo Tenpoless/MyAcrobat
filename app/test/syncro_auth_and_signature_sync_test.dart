@@ -13,6 +13,7 @@ import 'package:myacrobat_app/src/features/viewer/pdf_signing_screen.dart';
 import 'package:myacrobat_app/src/models/sign_document_result.dart';
 import 'package:myacrobat_app/src/models/signature_placement.dart';
 import 'package:myacrobat_app/src/models/syncro_user.dart';
+import 'package:myacrobat_app/src/models/vault_folder.dart';
 import 'package:myacrobat_app/src/models/vault_pdf_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -67,6 +68,10 @@ class _FakeSyncroApiClient extends MyAcrobatApiClient {
       ),
     ];
   }
+
+  @override
+  Future<VaultDirectoryListing> fetchDirectory({String? search}) async =>
+      VaultDirectoryListing(files: await fetchFiles(search: search));
 
   @override
   Future<Uint8List> downloadPdfBytes(String fileId) async {
@@ -363,11 +368,11 @@ void main() {
         // Ticket 15 & 18 checks:
         final appBar = tester.widget<AppBar>(find.byType(AppBar));
         expect(appBar.centerTitle, isTrue);
-        expect(find.text('AgriSign'), findsOneWidget);
+        expect(find.text('AgriDocs'), findsOneWidget);
         expect(find.text('MyAcrobat'), findsNothing);
         expect(find.text('MyAcrobat: Login Syncro ERP'), findsNothing);
 
-        final titleText = tester.widget<Text>(find.text('AgriSign'));
+        final titleText = tester.widget<Text>(find.text('AgriDocs'));
         expect(titleText.style?.color, Colors.black);
 
         expect(find.text('Login'), findsNWidgets(2));
